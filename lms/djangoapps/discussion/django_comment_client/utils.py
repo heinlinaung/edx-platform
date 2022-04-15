@@ -35,13 +35,14 @@ from openedx.core.djangoapps.discussions.utils import (
     get_group_names_by_id,
     has_required_keys,
 )
+import openedx.core.djangoapps.django_comment_common.comment_client as cc
 from openedx.core.djangoapps.django_comment_common.models import (
     FORUM_ROLE_COMMUNITY_TA,
     FORUM_ROLE_STUDENT,
     CourseDiscussionSettings,
     DiscussionsIdMapping,
-    Role
-)
+    Role,
+    FORUM_ROLE_ADMINISTRATOR, FORUM_ROLE_MODERATOR, FORUM_ROLE_GROUP_MODERATOR)
 from openedx.core.lib.cache_utils import request_cached
 from openedx.core.lib.courses import get_course_by_id
 from xmodule.modulestore.django import modulestore
@@ -144,6 +145,38 @@ def is_user_community_ta(user, course_id):
     Boolean operation to check whether a user's role is Community TA or not
     """
     return has_forum_access(user, course_id, FORUM_ROLE_COMMUNITY_TA)
+
+
+def get_users_with_moderator_roles(context):
+    """
+    Get all users within the course with moderator roles
+    """
+    moderators = [
+        user
+        for role in Role.objects.filter(
+            name__in=[FORUM_ROLE_ADMINISTRATOR, FORUM_ROLE_MODERATOR,
+                      FORUM_ROLE_COMMUNITY_TA],
+            course_id=context['course_id']
+        )
+        for user in role.users.all()
+    ]
+
+    group_moderators = [
+        user
+        for role in Role.objects.filter(
+            name__in=[FORUM_ROLE_GROUP_MODERATOR],
+            course_id=context['course_id']
+        )
+        for user in role.users.all()
+    ]
+
+    course_discussion_settings = CourseDiscussionSettings.get(context['course_id'])
+    context_group_id = cc.Thread.find(context['thread_id']).group_id
+    moderators_in_group = [user for user in group_moderators if get_group_id_for_user(
+        user, course_discussion_settings) == context_group_id]
+
+    moderators += moderators_in_group
+    return moderators
 
 
 def get_discussion_id_map_entry(xblock):
